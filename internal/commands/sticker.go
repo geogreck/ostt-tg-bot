@@ -92,7 +92,6 @@ func prepareAndSendSticker(ctx context.Context, b *bot.Bot, update *models.Updat
 			Filename: "sticker.webp",
 			Data:     bytes.NewReader(imgBytes),
 		},
-		Format: "static",
 	})
 	if err != nil {
 		fmt.Println("Ошибка при загрузке файла: ", err)

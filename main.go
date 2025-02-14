@@ -41,6 +41,7 @@ func main() {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/poll", bot.MatchTypePrefix, commands.PollHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/createset", bot.MatchTypePrefix, commands.CreateStickerSetHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/audit", bot.MatchTypePrefix, commands.AuditVideoHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commands.AuditTopVideosHandler)
 
 	b.Start(ctx)
 }

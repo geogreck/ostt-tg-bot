@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 	"telegram-sticker-bot/internal/auditor"
 	"time"
 
@@ -57,4 +58,33 @@ func AuditVideoChronHandler(ctx context.Context, b *bot.Bot, update *models.Upda
 		}
 		auditor.StoreAuditReport(key, msg.ID)
 	}()
+}
+
+func AuditTopVideosHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	top, err := auditor.GetTopAuditKeys(10)
+	if err != nil {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Ошибка при получении топа: " + err.Error(),
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: update.Message.ID,
+			},
+		})
+		return
+	}
+
+	msg := ""
+	for i, pos := range top {
+		data := strings.Split(pos, "/")
+		link := fmt.Sprintf("%d: https://t.me/c/%v/%v", i+1, data[0][4:], data[1])
+		msg += link + "\n"
+	}
+
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   msg,
+		ReplyParameters: &models.ReplyParameters{
+			MessageID: update.Message.ID,
+		},
+	})
 }

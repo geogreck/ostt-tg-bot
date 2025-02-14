@@ -11,12 +11,23 @@ import (
 )
 
 func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	// for specialized handlers to have priority
-	time.Sleep(time.Second * 2)
+	defer func() {
+		if r := recover(); r != nil {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.MessageReaction.Chat.ID,
+				Text:   fmt.Sprint(r),
+			})
+			fmt.Println("Recovered in f", r)
+		}
+	}()
 	if update.Message != nil && update.Message.Video != nil {
 		AuditVideoChronHandler(ctx, b, update)
 	}
 	if update.MessageReaction != nil {
+		if update.Message.Video == nil && update.Message.Photo == nil {
+			// skip audit for no videos and photos
+			return
+		}
 		reaction := update.MessageReaction
 		key := fmt.Sprintf("%v/%v", reaction.Chat.ID, reaction.MessageID)
 
@@ -52,7 +63,13 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 			})
 		}
 	}
+
+	if update.Message == nil {
+		return
+	}
+
 	userId := update.Message.From.ID
+	time.Sleep(time.Second * 2)
 	if messagesRaw, ok := UsersForMultiSticker.Load(userId); ok {
 		MultiStickerSemaphore.Lock()
 		messages := messagesRaw.([]MultiStickerData)
