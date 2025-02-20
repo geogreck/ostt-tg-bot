@@ -34,7 +34,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./arial.ttf:/app
+      - ./arial.ttf:/app/arial.ttf
 
 
 volumes:
