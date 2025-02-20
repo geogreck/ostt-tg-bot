@@ -149,11 +149,9 @@ func prepareAndSendSticker(ctx context.Context, b *bot.Bot, update *models.Updat
 }
 
 func AddStickerHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	fmt.Println("here")
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.Text == "" {
 		userId := update.Message.From.ID
 		if messagesRaw, ok := UsersForMultiSticker.Load(userId); ok {
-			fmt.Println("here")
 			messages := messagesRaw.([]MultiStickerData)
 			messages = append(messages, MultiStickerData{
 				update.Message.Text,
@@ -165,12 +163,11 @@ func AddStickerHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 			MultiStickerSemaphore.Lock()
 			UsersForMultiSticker.Store(userId, []MultiStickerData{})
 			MultiStickerSemaphore.Unlock()
-			fmt.Println("here")
+
 			time.Sleep(time.Second * 15)
+
 			MultiStickerSemaphore.Lock()
 			defer MultiStickerSemaphore.Unlock()
-
-			fmt.Println(UsersForMultiSticker.Load(userId))
 
 			if messagesRaw, ok := UsersForMultiSticker.Load(userId); !ok || len(messagesRaw.([]MultiStickerData)) == 0 {
 				b.SendMessage(ctx, &bot.SendMessageParams{
@@ -199,7 +196,6 @@ func AddStickerHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 		return
 	}
-	print(update.Message.ReplyToMessage.Text)
 
 	prepareAndSendSticker(ctx, b, update, update.Message.ReplyToMessage.Text)
 }

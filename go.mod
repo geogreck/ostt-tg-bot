@@ -6,6 +6,7 @@ require (
 	github.com/chai2010/webp v1.1.1
 	github.com/fogleman/gg v1.3.0
 	github.com/go-telegram/bot v1.14.1-0.20250214123954-b1cbc7f220c5
+	github.com/lib/pq v1.10.9
 	go.etcd.io/bbolt v1.4.0
 )
 

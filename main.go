@@ -27,9 +27,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	commander := commands.NewCommander()
+
 	opts := []bot.Option{
 		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "message_reaction"}),
-		bot.WithDefaultHandler(commands.DefaultHandler),
+		bot.WithDefaultHandler(commander.DefaultHandler),
 	}
 
 	b, err := bot.New(token, opts...)
@@ -38,10 +40,10 @@ func main() {
 	}
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/sticker", bot.MatchTypePrefix, commands.AddStickerHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/poll", bot.MatchTypePrefix, commands.PollHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/createset", bot.MatchTypePrefix, commands.CreateStickerSetHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/audit", bot.MatchTypePrefix, commands.AuditVideoHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commands.AuditTopVideosHandler)
+	// b.RegisterHandler(bot.HandlerTypeMessageText, "/poll", bot.MatchTypePrefix, commands.PollHandler)
+	// b.RegisterHandler(bot.HandlerTypeMessageText, "/createset", bot.MatchTypePrefix, commands.CreateStickerSetHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/audit", bot.MatchTypePrefix, commander.AuditHandler)
+	// b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commands.AuditTopVideosHandler)
 
 	b.Start(ctx)
 }

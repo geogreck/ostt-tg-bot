@@ -1,0 +1,2 @@
+ALTER TABLE tg_messages
+ADD COLUMN author_nickname VARCHAR(100) NOT NULL DEFAULT '';

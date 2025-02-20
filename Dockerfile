@@ -14,9 +14,4 @@ COPY . .
 
 RUN GOOS=linux go build -o ostt-tg-bot .
 
-FROM alpine:latest
-
-WORKDIR /root/
-
-COPY --from=builder /app/main .
 CMD ["./ostt-tg-bot"]
