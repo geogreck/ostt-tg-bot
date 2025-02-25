@@ -63,9 +63,11 @@ func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *mod
 	report := "Лучшие сообщения в чате за всё время:\n\n"
 	chatId := -1*update.Message.Chat.ID - 1000000000000
 	for id, message := range messages {
-		report += fmt.Sprintf("%d\\. [Сообщение](https://t.me/c/%v/%v) от %v %v \n", id, chatId, message.ID,
+		report += fmt.Sprintf("%d\\. [Сообщение](https://t.me/c/%v/%v) от %v %v \n", id+1, chatId, message.ID,
 			message.UserNickname, message.SentAt.Format("_2 Jan 2006 15:04"))
 	}
+	fmt.Println()
+	fmt.Println(report)
 
 	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
