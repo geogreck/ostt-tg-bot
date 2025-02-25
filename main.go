@@ -43,7 +43,7 @@ func main() {
 	// b.RegisterHandler(bot.HandlerTypeMessageText, "/poll", bot.MatchTypePrefix, commands.PollHandler)
 	// b.RegisterHandler(bot.HandlerTypeMessageText, "/createset", bot.MatchTypePrefix, commands.CreateStickerSetHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/audit", bot.MatchTypePrefix, commander.AuditHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commands.AuditTopVideosHandler)
-
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commander.AuditTopHandler)
+	// b.RegisterHandler(bot.Handle
 	b.Start(ctx)
 }

@@ -48,6 +48,34 @@ func (c *Commander) AuditHandler(ctx context.Context, b *bot.Bot, update *models
 	}
 }
 
-func AuditTopVideosHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	messages, err := c.mdb.GetTopMessages(update.Message.Chat.ID)
+	if err != nil {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Не получилось подготовить бухгалтерский отчет по наиболее смешным сообщениям в чате: " + err.Error(),
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: update.Message.ID,
+			},
+		})
+		return
+	}
+	report := "Лучшие сообщения в чате за всё время:\n\n"
+	chatId := -1*update.Message.Chat.ID - 1000000000000
+	for id, message := range messages {
+		report += fmt.Sprintf("%d\\. [Сообщение](https://t.me/c/%v/%v) от %v %v \n", id, chatId, message.ID,
+			message.UserNickname, message.SentAt.Format("_2 Jan 2006 15:04"))
+	}
 
+	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   report,
+		ReplyParameters: &models.ReplyParameters{
+			MessageID: update.Message.ID,
+		},
+		ParseMode: models.ParseModeMarkdown,
+	})
+	if err != nil {
+		fmt.Printf("Error top messages report: %v", err)
+	}
 }

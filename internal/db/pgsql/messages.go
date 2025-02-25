@@ -69,7 +69,6 @@ func (md *MessagesDatabase) UpdateBananaReactionCount(messageId int, chatId int6
 }
 
 func (md *MessagesDatabase) UpdateLikeReactionCount(messageId int, chatId int64, delta int) error {
-	fmt.Println(chatId, messageId, delta)
 	query := `
 		UPDATE tg_messages
 		SET reaction_like_count = reaction_like_count + $1
@@ -95,10 +94,40 @@ func (md *MessagesDatabase) GetReactions(messageId int, chatId int64) (bananaCou
 		FROM tg_messages
 		WHERE chat_id = $1 AND message_id = $2;
 	`
-	fmt.Println(chatId, messageId)
 	err = md.db.QueryRow(query, chatId, messageId).Scan(&bananaCount, &likeCount)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get reactions for message: %v", err)
 	}
 	return bananaCount, likeCount, nil
+}
+
+func (md *MessagesDatabase) GetTopMessages(chatId int64) ([]models.Message, error) {
+	// timeStr := "1d"
+	// timeParsed, err := time.ParseDuration(timeStr)
+	// if err != nil {
+	// 	return []models.Message{}, fmt.Errorf("Неверный формат даты")
+	// }
+	query := `
+		SELECT message_id, reaction_banana_count, reaction_like_count, reaction_like_count+2*reaction_banana_count, author_nickname, sent_at AS score
+		FROM tg_messages
+		WHERE chat_id = $1
+		ORDER BY score DESC;
+	`
+	rows, err := md.db.Query(query, chatId)
+	if err != nil {
+		return []models.Message{}, fmt.Errorf("failed to get top messages: %v", err)
+	}
+	messages := make([]models.Message, 0)
+	for rows.Next() {
+		message := models.Message{
+			ChatID: chatId,
+		}
+		score := 0
+		err := rows.Scan(&message.ID, &message.ReactionBananaCount, &message.ReactionLikeCount, &score, &message.UserNickname, &message.SentAt)
+		if err != nil {
+			return []models.Message{}, fmt.Errorf("failed to scan top messages: %v", err)
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
 }
