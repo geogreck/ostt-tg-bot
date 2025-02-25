@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/goodsign/monday"
 )
 
 func (c *Commander) AuditHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -63,9 +64,11 @@ func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *mod
 	}
 	report := "Лучшие сообщения в чате за всё время:\n\n"
 	chatId := -1*update.Message.Chat.ID - 1000000000000
+
 	for id, message := range messages {
-		report += fmt.Sprintf("%d\\. [Сообщение](https://t.me/c/%v/%v) от %v %v \n", id+1, chatId, message.ID,
-			strings.Replace(message.UserNickname, "_", "\\_", -1), message.SentAt.Format("_2 Jan 2006 15:04"))
+		report += fmt.Sprintf("%d\\. [@%v %v](https://t.me/c/%v/%v)\n", id+1,
+			strings.Replace(message.UserNickname, "_", "\\_", -1), monday.Format(message.SentAt, "2 January", monday.LocaleRuRU), chatId, message.ID,
+		)
 	}
 	fmt.Println()
 	fmt.Println(report)
