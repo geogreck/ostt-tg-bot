@@ -108,7 +108,7 @@ func (md *MessagesDatabase) GetTopMessages(chatId int64) ([]models.Message, erro
 	// 	return []models.Message{}, fmt.Errorf("Неверный формат даты")
 	// }
 	query := `
-		SELECT message_id, reaction_banana_count, reaction_like_count, reaction_like_count+2*reaction_banana_count, author_nickname, sent_at AS score
+		SELECT message_id, reaction_banana_count, reaction_like_count, reaction_like_count+2*reaction_banana_count AS score, author_nickname, sent_at
 		FROM tg_messages
 		WHERE chat_id = $1
 		ORDER BY score DESC
