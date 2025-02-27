@@ -3,8 +3,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"telegram-sticker-bot/internal/auditor"
+	"telegram-sticker-bot/internal/util"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -51,7 +54,42 @@ func (c *Commander) AuditHandler(ctx context.Context, b *bot.Bot, update *models
 }
 
 func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	messages, err := c.mdb.GetTopMessages(update.Message.Chat.ID)
+	limit := 10
+	duration := time.Hour * 24 * 7
+	args := strings.Split(update.Message.Text, " ")
+
+	if len(args) > 1 {
+		durationStr := args[1]
+		durationS, err := util.ParseCustomDuration(durationStr)
+		if err != nil {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Неправильный формат времени: " + err.Error(),
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: update.Message.ID,
+				},
+			})
+			return
+		}
+		duration = durationS
+	}
+	if len(args) == 3 {
+		limitStr := args[2]
+		limitS, err := strconv.Atoi(limitStr)
+		if err != nil && limitStr != "" {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Неправильный формат количества сообщений: " + err.Error(),
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: update.Message.ID,
+				},
+			})
+			return
+		}
+		limit = limitS
+	}
+
+	messages, err := c.mdb.GetTopMessages(update.Message.Chat.ID, duration, limit)
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -62,7 +100,7 @@ func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *mod
 		})
 		return
 	}
-	report := "Лучшие сообщения в чате за всё время:\n\n"
+	report := "Лучшие сообщения в чате за " + util.FormatDuration(duration) + ":\n\n"
 	chatId := -1*update.Message.Chat.ID - 1000000000000
 
 	for id, message := range messages {
@@ -70,8 +108,6 @@ func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *mod
 			strings.Replace(message.UserNickname, "_", "\\_", -1), monday.Format(message.SentAt, "2 January", monday.LocaleRuRU), chatId, message.ID,
 		)
 	}
-	fmt.Println()
-	fmt.Println(report)
 
 	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,

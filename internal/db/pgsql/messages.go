@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"telegram-sticker-bot/internal/models"
+	"time"
 )
 
 type MessagesDatabase struct {
@@ -101,20 +102,21 @@ func (md *MessagesDatabase) GetReactions(messageId int, chatId int64) (bananaCou
 	return bananaCount, likeCount, nil
 }
 
-func (md *MessagesDatabase) GetTopMessages(chatId int64) ([]models.Message, error) {
+func (md *MessagesDatabase) GetTopMessages(chatId int64, interval time.Duration, limit int) ([]models.Message, error) {
 	// timeStr := "1d"
 	// timeParsed, err := time.ParseDuration(timeStr)
 	// if err != nil {
 	// 	return []models.Message{}, fmt.Errorf("Неверный формат даты")
 	// }
+	startTime := time.Now().Add(-interval)
 	query := `
 		SELECT message_id, reaction_banana_count, reaction_like_count, reaction_like_count+2*reaction_banana_count AS score, author_nickname, sent_at
 		FROM tg_messages
-		WHERE chat_id = $1
+		WHERE chat_id = $1 AND sent_at > $2
 		ORDER BY score DESC
-		LIMIT 20;
+		LIMIT $3;
 	`
-	rows, err := md.db.Query(query, chatId)
+	rows, err := md.db.Query(query, chatId, startTime, limit)
 	if err != nil {
 		return []models.Message{}, fmt.Errorf("failed to get top messages: %v", err)
 	}
