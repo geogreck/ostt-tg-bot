@@ -11,6 +11,25 @@ import (
 )
 
 func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message != nil && update.Message.Text == "а" {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Хуй на!",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: update.Message.ID,
+			},
+		})
+	}
+	if update.Message != nil && update.Message.Text == "a" {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Hui na!",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: update.Message.ID,
+			},
+		})
+	}
+
 	if update.Message != nil && update.Message.ForwardOrigin == nil {
 		message := models2.Message{
 			ID:            int64(update.Message.ID),
