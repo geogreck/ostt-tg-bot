@@ -11,7 +11,7 @@ import (
 )
 
 func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.Message != nil && update.Message.Text == "а" {
+	if update.Message != nil && (update.Message.Text == "а" || update.Message.Text == "А") {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Хуй на!",
@@ -20,7 +20,7 @@ func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *mode
 			},
 		})
 	}
-	if update.Message != nil && update.Message.Text == "a" {
+	if update.Message != nil && (update.Message.Text == "a" || update.Message.Text == "A") {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Hui na!",
