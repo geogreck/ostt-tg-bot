@@ -86,6 +86,16 @@ func (c *Commander) AuditTopHandler(ctx context.Context, b *bot.Bot, update *mod
 			})
 			return
 		}
+		if limitS > 100 {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Максимально допустимое количество сообщений 100. ",
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: update.Message.ID,
+				},
+			})
+			return
+		}
 		limit = limitS
 	}
 
