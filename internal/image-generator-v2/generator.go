@@ -21,9 +21,9 @@ func fontSizeForMessages(messages []models.MessageForSticker) int {
 
 	switch {
 	case totalLen < 50:
-		return 50 // Очень мало текста — крупный шрифт
+		return 40 // Очень мало текста — крупный шрифт
 	case totalLen < 100:
-		return 40
+		return 30
 	case totalLen < 200:
 		return 30
 	case totalLen < 300:
