@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	imagegenerator "telegram-sticker-bot/internal/image-generator"
+	imagegeneratorv2 "telegram-sticker-bot/internal/image-generator-v2"
+	modelss "telegram-sticker-bot/internal/models"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -66,15 +68,16 @@ func CreateStickerSetHandler(ctx context.Context, b *bot.Bot, update *models.Upd
 }
 
 type MultiStickerData struct {
-	Message   string
-	MessageId int
+	Message      string
+	UserNickname string
+	MessageId    int
 }
 
 var UsersForMultiSticker sync.Map
 var MultiStickerSemaphore sync.Mutex
 
-func prepareAndSendSticker(ctx context.Context, b *bot.Bot, update *models.Update, text string) {
-	imgBytes, err := imagegenerator.CreateSticker(text)
+func prepareAndSendSticker(ctx context.Context, b *bot.Bot, update *models.Update, messages []modelss.MessageForSticker) {
+	imgBytes, err := imagegeneratorv2.CreateSticker(messages)
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -154,8 +157,9 @@ func AddStickerHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if messagesRaw, ok := UsersForMultiSticker.Load(userId); ok {
 			messages := messagesRaw.([]MultiStickerData)
 			messages = append(messages, MultiStickerData{
-				update.Message.Text,
-				update.Message.ID,
+				Message:      update.Message.Text,
+				UserNickname: update.Message.From.Username,
+				MessageId:    update.Message.ID,
 			})
 			UsersForMultiSticker.Store(userId, messages)
 		}
@@ -185,17 +189,25 @@ func AddStickerHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				return messages[i].MessageId < messages[j].MessageId
 			})
 
-			messageString := []string{}
+			messagesData := []modelss.MessageForSticker{}
 			for _, message := range messages {
-				messageString = append(messageString, message.Message)
+				messagesData = append(messagesData, modelss.MessageForSticker{
+					UserNickname: message.UserNickname,
+					Text:         message.Message,
+				})
 			}
 
-			prepareAndSendSticker(ctx, b, update, strings.Join(messageString, "\n"))
+			prepareAndSendSticker(ctx, b, update, messagesData)
 			UsersForMultiSticker.Delete(userId)
 		}()
 
 		return
 	}
 
-	prepareAndSendSticker(ctx, b, update, update.Message.ReplyToMessage.Text)
+	prepareAndSendSticker(ctx, b, update, []modelss.MessageForSticker{
+		{
+			UserNickname: update.Message.ReplyToMessage.From.Username,
+			Text:         update.Message.ReplyToMessage.Text,
+		},
+	})
 }

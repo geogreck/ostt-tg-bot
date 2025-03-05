@@ -84,8 +84,9 @@ func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *mode
 			MultiStickerSemaphore.Lock()
 			messages := messagesRaw.([]MultiStickerData)
 			messages = append(messages, MultiStickerData{
-				update.Message.Text,
-				update.Message.ID,
+				Message:      update.Message.Text,
+				UserNickname: update.Message.ForwardOrigin.MessageOriginUser.SenderUser.Username,
+				MessageId:    update.Message.ID,
 			})
 			UsersForMultiSticker.Store(userId, messages)
 			MultiStickerSemaphore.Unlock()

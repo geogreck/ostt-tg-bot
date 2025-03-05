@@ -45,7 +45,7 @@ func FormatDuration(d time.Duration) string {
 
 	minutes := seconds / 60
 	if minutes > 0 {
-		parts = append(parts, plural(minutes, "минута", "минуты", "минут"))
+		parts = append(parts, plural(minutes, "минуту", "минуты", "минут"))
 	}
 	seconds %= 60
 

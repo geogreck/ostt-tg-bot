@@ -12,3 +12,8 @@ type Message struct {
 	ReactionLikeCount   int
 	UserNickname        string
 }
+
+type MessageForSticker struct {
+	UserNickname string
+	Text         string
+}
