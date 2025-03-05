@@ -3,11 +3,13 @@ package imagegeneratorv2
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"html/template"
 	"image/png"
 	"log"
 	"net/url"
 	"telegram-sticker-bot/internal/models"
+	"unicode/utf8"
 
 	"github.com/chai2010/webp"
 	"github.com/chromedp/chromedp"
@@ -16,12 +18,14 @@ import (
 func fontSizeForMessages(messages []models.MessageForSticker) int {
 	totalLen := 0
 	for _, m := range messages {
-		totalLen += len(m.Text)
+		totalLen += utf8.RuneCountInString(m.Text)
 	}
+
+	fmt.Println(totalLen)
 
 	switch {
 	case totalLen < 50:
-		return 40 // Очень мало текста — крупный шрифт
+		return 35 // Очень мало текста — крупный шрифт
 	case totalLen < 100:
 		return 30
 	case totalLen < 200:
@@ -30,10 +34,10 @@ func fontSizeForMessages(messages []models.MessageForSticker) int {
 		return 25
 	case totalLen < 500:
 		return 20
-	case totalLen < 1200:
+	case totalLen < 650:
 		return 20
 	default:
-		return 10 // Очень много текста — мелкий шрифт
+		return 15 // Очень много текста — мелкий шрифт
 	}
 }
 
