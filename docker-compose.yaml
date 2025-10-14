@@ -30,6 +30,9 @@ services:
       dockerfile: Dockerfile
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      OSTT_AI_API_KEY: ${OSTT_AI_API_KEY}
+      OSTT_AI_SYSTEM_PROMPT: ${OSTT_AI_SYSTEM_PROMPT}
+      OSST_AI_ASK_DAILY_LIMIT: ${OSST_AI_ASK_DAILY_LIMIT}
     depends_on:
       db:
         condition: service_healthy
