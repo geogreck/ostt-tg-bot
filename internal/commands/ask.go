@@ -16,51 +16,30 @@ import (
 )
 
 const (
-	defaultYandexModelURI   = "gpt://b1gslpsolbjjb92qq3b8/yandexgpt/latest"
-	completionAsyncEndpoint = "https://llm.api.cloud.yandex.net/foundationModels/v1/completionAsync"
-	operationGetEndpoint    = "https://operation.api.cloud.yandex.net/operations/"
+    defaultModel                 = "gpt://b1gslpsolbjjb92qq3b8/gpt-oss-20b/latest"
+    chatCompletionsEndpoint      = "https://llm.api.cloud.yandex.net/v1/chat/completions"
 )
 
-type yandexMessage struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
+type openAIMessage struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
 }
 
-type yandexCompletionOptions struct {
-	Stream           bool    `json:"stream"`
-	Temperature      float64 `json:"temperature"`
-	MaxTokens        string  `json:"maxTokens"`
+type chatCompletionRequest struct {
+    Model       string          `json:"model"`
+    Messages    []openAIMessage `json:"messages"`
+    Temperature float64         `json:"temperature,omitempty"`
+    MaxTokens   int             `json:"max_tokens,omitempty"`
+    Stream      bool            `json:"stream,omitempty"`
 }
 
-type yandexCompletionRequest struct {
-	ModelURI          string                   `json:"modelUri"`
-	CompletionOptions yandexCompletionOptions  `json:"completionOptions"`
-	Messages          []yandexMessage          `json:"messages"`
-}
-
-type operationCreateResponse struct {
-	ID string `json:"id"`
-	Done bool  `json:"done"`
-}
-
-type operationError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type operationGetResponse struct {
-	Done     bool              `json:"done"`
-	ID       string            `json:"id"`
-	Error    *operationError   `json:"error"`
-	Response *struct {
-		Alternatives []struct {
-			Message struct {
-				Role string `json:"role"`
-				Text string `json:"text"`
-			} `json:"message"`
-			Status string `json:"status"`
-		} `json:"alternatives"`
-	} `json:"response"`
+type chatCompletionResponse struct {
+    Choices []struct {
+        Message struct {
+            Role    string `json:"role"`
+            Content string `json:"content"`
+        } `json:"message"`
+    } `json:"choices"`
 }
 
 func getReplyContent(update *models.Update) (string, error) {
@@ -77,102 +56,100 @@ func getReplyContent(update *models.Update) (string, error) {
 	return "", errors.New("сообщение не содержит текст. Ответьте на текстовое сообщение")
 }
 
-func buildCompletionBody(text string) ([]byte, error) {
-	modelURI := os.Getenv("OSTT_AI_MODEL_URI")
-	if modelURI == "" {
-		modelURI = defaultYandexModelURI
-	}
-    messages := []yandexMessage{}
-    if systemPrompt := os.Getenv("OSTT_AI_SYSTEM_PROMPT"); systemPrompt != "" {
-        messages = append(messages, yandexMessage{Role: "system", Text: systemPrompt})
+func buildCompletionBody(text string, systemPrompt string) ([]byte, error) {
+    model := os.Getenv("OSST_AI_MODEL")
+    if model == "" {
+        model = os.Getenv("OSTT_AI_MODEL")
     }
-    messages = append(messages, yandexMessage{Role: "user", Text: text})
-
-    body := yandexCompletionRequest{
-        ModelURI: modelURI,
-        CompletionOptions: yandexCompletionOptions{
-            Stream:      false,
-            Temperature: 0.3,
-            MaxTokens:   "256",
-        },
-        Messages: messages,
+    if model == "" {
+        // legacy envs for compatibility
+        if v := os.Getenv("OSST_AI_MODEL_URI"); v != "" {
+            model = v
+        }
     }
-	return json.Marshal(body)
+    if model == "" {
+        model = defaultModel
+    }
+
+    messages := []openAIMessage{}
+    if systemPrompt != "" {
+        messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
+    }
+    messages = append(messages, openAIMessage{Role: "user", Content: text})
+
+    body := chatCompletionRequest{
+        Model:       model,
+        Messages:    messages,
+        Temperature: 0.3,
+        MaxTokens:   256,
+        Stream:      false,
+    }
+    return json.Marshal(body)
 }
 
-func doCompletionAsync(ctx context.Context, client *http.Client, body []byte) (string, error) {
-	apiKey := os.Getenv("OSTT_AI_API_KEY")
-	if apiKey == "" {
-		return "", errors.New("переменная окружения OSTT_AI_API_KEY не установлена")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, completionAsyncEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Api-Key %s", apiKey))
-	if folderID := os.Getenv("OSTT_AI_FOLDER_ID"); folderID != "" {
-		req.Header.Set("x-folder-id", folderID)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("ошибка запроса: %s: %s", resp.Status, string(b))
-	}
-	var op operationCreateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&op); err != nil {
-		return "", err
-	}
-	if op.ID == "" {
-		return "", errors.New("пустой идентификатор операции")
-	}
-	return op.ID, nil
+func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (string, error) {
+    apiKey := os.Getenv("OSST_AI_API_KEY")
+    if apiKey == "" {
+        apiKey = os.Getenv("OSTT_AI_API_KEY")
+    }
+    if apiKey == "" {
+        return "", errors.New("переменная окружения OSST_AI_API_KEY не установлена")
+    }
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsEndpoint, bytes.NewReader(body))
+    if err != nil {
+        return "", err
+    }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+    folderID := os.Getenv("OSST_AI_FOLDER_ID")
+    if folderID == "" {
+        folderID = os.Getenv("OSTT_AI_FOLDER_ID")
+    }
+    if folderID != "" {
+        req.Header.Set("OpenAI-Project", folderID)
+    }
+    resp, err := client.Do(req)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        b, _ := io.ReadAll(resp.Body)
+        return "", fmt.Errorf("ошибка запроса: %s: %s", resp.Status, string(b))
+    }
+    var out chatCompletionResponse
+    if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+        return "", err
+    }
+    if len(out.Choices) == 0 {
+        return "", errors.New("пустой ответ модели")
+    }
+    return out.Choices[0].Message.Content, nil
 }
 
-func pollOperationResult(ctx context.Context, client *http.Client, opID string) (string, error) {
-	apiKey := os.Getenv("OSTT_AI_API_KEY")
-	if apiKey == "" {
-		return "", errors.New("переменная окружения OSTT_AI_API_KEY не установлена")
-	}
-	deadline := time.Now().Add(45 * time.Second)
-	for attempt := 0; ; attempt++ {
-		if time.Now().After(deadline) {
-			return "", errors.New("время ожидания генерации истекло")
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, operationGetEndpoint+opID, nil)
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Authorization", fmt.Sprintf("Api-Key %s", apiKey))
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", err
-		}
-		var op operationGetResponse
-		func() {
-			defer resp.Body.Close()
-			_ = json.NewDecoder(resp.Body).Decode(&op)
-		}()
-		if op.Error != nil && op.Error.Message != "" {
-			return "", fmt.Errorf("ошибка операции: %s", op.Error.Message)
-		}
-		if op.Done {
-			if op.Response == nil || len(op.Response.Alternatives) == 0 {
-				return "", errors.New("пустой ответ модели")
-			}
-			return op.Response.Alternatives[0].Message.Text, nil
-		}
-		time.Sleep(1 * time.Second)
-	}
-}
+// no polling required with Chat Completions
 
 func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+    // Admins: can use /ask anywhere, no limits
+    userID := update.Message.From.ID
+    isAdmin := userID == 354806980 || userID == 228020962
+
+    // Chat access control: allow only a specific chat (supports supergroup negative IDs)
+    const allowedChatShortID int64 = 2115621645
+    chatID := update.Message.Chat.ID
+    isAllowed := chatID == allowedChatShortID || (-chatID-1000000000000) == allowedChatShortID
+    if !isAdmin && !isAllowed {
+        b.SendMessage(ctx, &bot.SendMessageParams{
+            ChatID: update.Message.Chat.ID,
+            Text:   "Команда /ask недоступна в этом чате.",
+            ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
+        })
+        return
+    }
+
     // Per-user daily quota enforcement
-    if limitStr := os.Getenv("OSST_AI_ASK_DAILY_LIMIT"); limitStr != "" {
+    if !isAdmin {
+        if limitStr := os.Getenv("OSST_AI_ASK_DAILY_LIMIT"); limitStr != "" {
         var limit int
         _, err := fmt.Sscanf(limitStr, "%d", &limit)
         if err == nil && limit > 0 {
@@ -194,6 +171,7 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
                 return
             }
         }
+        }
     }
 
 	content, err := getReplyContent(update)
@@ -205,7 +183,7 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		})
 		return
 	}
-	body, err := buildCompletionBody(content)
+    body, err := buildCompletionBody(content, c.GetSystemPrompt())
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -215,20 +193,11 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		return
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
-	opID, err := doCompletionAsync(ctx, client, body)
+    answer, err := sendChatCompletion(ctx, client, body)
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("Ошибка запроса к модели: %v", err),
-			ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
-		})
-		return
-	}
-	answer, err := pollOperationResult(ctx, client, opID)
-	if err != nil {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("Не удалось получить результат: %v", err),
+            Text:   fmt.Sprintf("Ошибка запроса к модели: %v", err),
 			ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
 		})
 		return
