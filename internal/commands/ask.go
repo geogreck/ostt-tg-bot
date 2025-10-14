@@ -1,19 +1,17 @@
 package commands
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"strings"
-	"time"
+    "context"
+    "errors"
+    "fmt"
+    "os"
+    "strconv"
+    "strings"
 
-	"github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
+    "github.com/go-telegram/bot"
+    "github.com/go-telegram/bot/models"
+    "github.com/openai/openai-go/v3"
+    "github.com/openai/openai-go/v3/option"
 )
 
 const (
@@ -74,20 +72,8 @@ func getAskContent(update *models.Update) ([]openAIMessage, error) {
     return userMessages, nil
 }
 
-func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) ([]byte, error) {
-    model := os.Getenv("OSST_AI_MODEL")
-    if model == "" {
-        model = os.Getenv("OSTT_AI_MODEL")
-    }
-    if model == "" {
-        // legacy envs for compatibility
-        if v := os.Getenv("OSST_AI_MODEL_URI"); v != "" {
-            model = v
-        }
-    }
-    if model == "" {
-        model = defaultModel
-    }
+func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) (chatCompletionRequest, error) {
+    model := resolveModelFromEnv()
 
     messages := []openAIMessage{}
     if systemPrompt != "" {
@@ -95,17 +81,7 @@ func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) ([]b
     }
     messages = append(messages, userMessages...)
 
-    // max_tokens from env (fallback to 2048 if not set or invalid)
-    maxTokens := 2048
-    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_TOKENS")); v != "" {
-        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
-            maxTokens = 2048
-        }
-    } else if v := strings.TrimSpace(os.Getenv("OSTT_AI_MAX_TOKENS")); v != "" {
-        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
-            maxTokens = 2048
-        }
-    }
+    maxTokens := resolveMaxTokensFromEnv()
 
     body := chatCompletionRequest{
         Model:       model,
@@ -114,34 +90,13 @@ func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) ([]b
         MaxTokens:   maxTokens,
         Stream:      false,
     }
-    return json.Marshal(body)
+    return body, nil
 }
 
 // buildCompletionBodyFromMessages builds request body using a fully-formed messages slice
-func buildCompletionBodyFromMessages(messages []openAIMessage) ([]byte, error) {
-    model := os.Getenv("OSST_AI_MODEL")
-    if model == "" {
-        model = os.Getenv("OSTT_AI_MODEL")
-    }
-    if model == "" {
-        if v := os.Getenv("OSST_AI_MODEL_URI"); v != "" {
-            model = v
-        }
-    }
-    if model == "" {
-        model = defaultModel
-    }
-
-    maxTokens := 2048
-    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_TOKENS")); v != "" {
-        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
-            maxTokens = 2048
-        }
-    } else if v := strings.TrimSpace(os.Getenv("OSTT_AI_MAX_TOKENS")); v != "" {
-        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
-            maxTokens = 2048
-        }
-    }
+func buildCompletionBodyFromMessages(messages []openAIMessage) (chatCompletionRequest, error) {
+    model := resolveModelFromEnv()
+    maxTokens := resolveMaxTokensFromEnv()
 
     body := chatCompletionRequest{
         Model:       model,
@@ -150,41 +105,68 @@ func buildCompletionBodyFromMessages(messages []openAIMessage) ([]byte, error) {
         MaxTokens:   maxTokens,
         Stream:      false,
     }
-    return json.Marshal(body)
+    return body, nil
 }
 
-func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (string, string, error) {
+// resolveModelFromEnv returns the model URI using multiple env names, with a sane default.
+func resolveModelFromEnv() string {
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MODEL")); v != "" {
+        return v
+    }
+    if v := strings.TrimSpace(os.Getenv("OSTT_AI_MODEL")); v != "" {
+        return v
+    }
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MODEL_URI")); v != "" {
+        return v
+    }
+    return defaultModel
+}
+
+// resolveMaxTokensFromEnv parses max tokens from env (supports two names) and defaults to 2048.
+func resolveMaxTokensFromEnv() int {
+    const fallback = 2048
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_TOKENS")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            return n
+        }
+        return fallback
+    }
+    if v := strings.TrimSpace(os.Getenv("OSTT_AI_MAX_TOKENS")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            return n
+        }
+        return fallback
+    }
+    return fallback
+}
+
+func newOpenAIClientFromEnv() (*openai.Client, string, error) {
     apiKey := os.Getenv("OSST_AI_API_KEY")
     if apiKey == "" {
         apiKey = os.Getenv("OSTT_AI_API_KEY")
     }
     if apiKey == "" {
-        return "", "", errors.New("переменная окружения OSST_AI_API_KEY не установлена")
+        return nil, "", errors.New("переменная окружения OSST_AI_API_KEY не установлена")
     }
-    req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsEndpoint, bytes.NewReader(body))
-    if err != nil {
-        return "", "", err
-    }
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
     folderID := os.Getenv("OSST_AI_FOLDER_ID")
     if folderID == "" {
         folderID = os.Getenv("OSTT_AI_FOLDER_ID")
     }
-    if folderID != "" {
-        req.Header.Set("OpenAI-Project", folderID)
-    }
-    resp, err := client.Do(req)
-    if err != nil {
-        return "", "", err
-    }
-    defer resp.Body.Close()
-    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        b, _ := io.ReadAll(resp.Body)
-        return "", "", fmt.Errorf("ошибка запроса: %s: %s", resp.Status, string(b))
-    }
+    // Configure client with API key; custom header applied per-request below
+    c := openai.NewClient(
+        option.WithAPIKey(apiKey),
+    )
+    return &c, folderID, nil
+}
+
+func sendChatCompletion(ctx context.Context, client *openai.Client, folderID string, body chatCompletionRequest) (string, string, error) {
     var out chatCompletionResponse
-    if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+    requestOpts := []option.RequestOption{}
+    if strings.TrimSpace(folderID) != "" {
+        requestOpts = append(requestOpts, option.WithHeader("OpenAI-Project", folderID))
+    }
+    // Post to absolute URL to preserve the same API
+    if err := client.Post(ctx, chatCompletionsEndpoint, body, &out, requestOpts...); err != nil {
         return "", "", err
     }
     if len(out.Choices) == 0 {
@@ -197,7 +179,7 @@ func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (
 
 // chatCompleteWithContinuation requests completion and, if finish_reason=="length",
 // continues generation for a few rounds by appending assistant reply and a short user prompt.
-func chatCompleteWithContinuation(ctx context.Context, client *http.Client, userMessages []openAIMessage, systemPrompt string) (string, error) {
+func chatCompleteWithContinuation(ctx context.Context, client *openai.Client, folderID string, userMessages []openAIMessage, systemPrompt string) (string, error) {
     // build initial messages
     messages := make([]openAIMessage, 0, len(userMessages)+2)
     if strings.TrimSpace(systemPrompt) != "" {
@@ -219,7 +201,7 @@ func chatCompleteWithContinuation(ctx context.Context, client *http.Client, user
         if err != nil {
             return "", err
         }
-        content, finish, err := sendChatCompletion(ctx, client, body)
+        content, finish, err := sendChatCompletion(ctx, client, folderID, body)
         if err != nil {
             return "", err
         }
@@ -290,8 +272,16 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		})
 		return
 	}
-    client := &http.Client{Timeout: 60 * time.Second}
-    answer, err := chatCompleteWithContinuation(ctx, client, userMsgs, c.GetSystemPrompt())
+    client, folderID, err := newOpenAIClientFromEnv()
+    if err != nil {
+        b.SendMessage(ctx, &bot.SendMessageParams{
+            ChatID: update.Message.Chat.ID,
+            Text:   err.Error(),
+            ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
+        })
+        return
+    }
+    answer, err := chatCompleteWithContinuation(ctx, client, folderID, userMsgs, c.GetSystemPrompt())
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
