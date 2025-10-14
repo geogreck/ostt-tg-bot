@@ -171,6 +171,31 @@ func pollOperationResult(ctx context.Context, client *http.Client, opID string) 
 }
 
 func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+    // Per-user daily quota enforcement
+    if limitStr := os.Getenv("OSST_AI_ASK_DAILY_LIMIT"); limitStr != "" {
+        var limit int
+        _, err := fmt.Sscanf(limitStr, "%d", &limit)
+        if err == nil && limit > 0 {
+            remaining, allowed, qerr := c.mdb.TryConsumeAskQuota(update.Message.From.ID, limit)
+            if qerr != nil {
+                b.SendMessage(ctx, &bot.SendMessageParams{
+                    ChatID: update.Message.Chat.ID,
+                    Text:   fmt.Sprintf("Не удалось проверить квоту: %v", qerr),
+                    ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
+                })
+                return
+            }
+            if !allowed {
+                b.SendMessage(ctx, &bot.SendMessageParams{
+                    ChatID: update.Message.Chat.ID,
+                    Text:   fmt.Sprintf("Достигнут дневной лимит /ask. Попробуйте завтра. Осталось: %d", remaining),
+                    ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
+                })
+                return
+            }
+        }
+    }
+
 	content, err := getReplyContent(update)
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
