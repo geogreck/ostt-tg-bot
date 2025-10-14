@@ -4,7 +4,6 @@ import (
     "context"
     "fmt"
     "math/rand"
-    "net/http"
     "strings"
     models2 "telegram-sticker-bot/internal/models"
     "time"
@@ -81,16 +80,15 @@ func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *mode
                 key := fmt.Sprintf("%d:%d", chatID, update.Message.ID)
                 if !autoAskSent.LoadOrStore(key) {
                     userMsgs := []openAIMessage{{Role: "user", Content: text}}
-                    body, err := buildCompletionBody(userMsgs, c.GetSystemPrompt())
-                    if err == nil {
-                        client := &http.Client{Timeout: 60 * time.Second}
-                        if answer, err := sendChatCompletion(ctx, client, body); err == nil {
-                            b.SendMessage(ctx, &bot.SendMessageParams{
-                                ChatID: update.Message.Chat.ID,
-                                Text:   answer,
-                                ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
-                            })
-                        }
+                    client, folderID, err := newOpenAIClientFromEnv()
+                    if err != nil {
+                        return
+                    }
+                    // ensure per-request timeout similar to previous behavior
+                    tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+                    defer cancel()
+                    if answer, err := chatCompleteWithContinuation(tctx, client, folderID, userMsgs, c.GetSystemPrompt()); err == nil {
+                        sendChunkedMessage(ctx, b, update.Message.Chat.ID, update.Message.ID, answer)
                     }
                 }
             }
