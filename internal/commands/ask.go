@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -42,21 +43,37 @@ type chatCompletionResponse struct {
     } `json:"choices"`
 }
 
-func getReplyContent(update *models.Update) (string, error) {
-	if update.Message == nil || update.Message.ReplyToMessage == nil {
-		return "", errors.New("нужно ответить на сообщение командой /ask")
-	}
-	replied := update.Message.ReplyToMessage
-	if replied.Text != "" {
-		return replied.Text, nil
-	}
-	if replied.Caption != "" {
-		return replied.Caption, nil
-	}
-	return "", errors.New("сообщение не содержит текст. Ответьте на текстовое сообщение")
+func getAskContent(update *models.Update) ([]openAIMessage, error) {
+    if update.Message == nil {
+        return nil, errors.New("некорректное сообщение")
+    }
+    userMessages := []openAIMessage{}
+    // 1) Если команда вызвана ответом на сообщение — добавим текст ответа
+    if update.Message.ReplyToMessage != nil {
+        replied := update.Message.ReplyToMessage
+        if replied.Text != "" {
+            userMessages = append(userMessages, openAIMessage{Role: "user", Content: replied.Text})
+        } else if replied.Caption != "" {
+            userMessages = append(userMessages, openAIMessage{Role: "user", Content: replied.Caption})
+        }
+    }
+    // 2) Также пробуем вытащить инлайн-текст после "/ask"
+    raw := strings.TrimSpace(update.Message.Text)
+    if strings.HasPrefix(raw, "/ask") {
+        if i := strings.IndexByte(raw, ' '); i != -1 {
+            inline := strings.TrimSpace(raw[i+1:])
+            if inline != "" {
+                userMessages = append(userMessages, openAIMessage{Role: "user", Content: inline})
+            }
+        }
+    }
+    if len(userMessages) == 0 {
+        return nil, errors.New("нужно ответить на текстовое сообщение или указать текст: /ask <сообщение>")
+    }
+    return userMessages, nil
 }
 
-func buildCompletionBody(text string, systemPrompt string) ([]byte, error) {
+func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) ([]byte, error) {
     model := os.Getenv("OSST_AI_MODEL")
     if model == "" {
         model = os.Getenv("OSTT_AI_MODEL")
@@ -75,7 +92,7 @@ func buildCompletionBody(text string, systemPrompt string) ([]byte, error) {
     if systemPrompt != "" {
         messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
     }
-    messages = append(messages, openAIMessage{Role: "user", Content: text})
+    messages = append(messages, userMessages...)
 
     body := chatCompletionRequest{
         Model:       model,
@@ -174,7 +191,7 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
         }
     }
 
-	content, err := getReplyContent(update)
+    userMsgs, err := getAskContent(update)
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -183,7 +200,7 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		})
 		return
 	}
-    body, err := buildCompletionBody(content, c.GetSystemPrompt())
+    body, err := buildCompletionBody(userMsgs, c.GetSystemPrompt())
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -208,5 +225,6 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
 	})
 }
+
 
 
