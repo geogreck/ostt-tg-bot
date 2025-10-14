@@ -40,6 +40,7 @@ type chatCompletionResponse struct {
             Role    string `json:"role"`
             Content string `json:"content"`
         } `json:"message"`
+        FinishReason string `json:"finish_reason"`
     } `json:"choices"`
 }
 
@@ -94,27 +95,75 @@ func buildCompletionBody(userMessages []openAIMessage, systemPrompt string) ([]b
     }
     messages = append(messages, userMessages...)
 
+    // max_tokens from env (fallback to 2048 if not set or invalid)
+    maxTokens := 2048
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_TOKENS")); v != "" {
+        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
+            maxTokens = 2048
+        }
+    } else if v := strings.TrimSpace(os.Getenv("OSTT_AI_MAX_TOKENS")); v != "" {
+        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
+            maxTokens = 2048
+        }
+    }
+
     body := chatCompletionRequest{
         Model:       model,
         Messages:    messages,
         Temperature: 0.3,
-        MaxTokens:   256,
+        MaxTokens:   maxTokens,
         Stream:      false,
     }
     return json.Marshal(body)
 }
 
-func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (string, error) {
+// buildCompletionBodyFromMessages builds request body using a fully-formed messages slice
+func buildCompletionBodyFromMessages(messages []openAIMessage) ([]byte, error) {
+    model := os.Getenv("OSST_AI_MODEL")
+    if model == "" {
+        model = os.Getenv("OSTT_AI_MODEL")
+    }
+    if model == "" {
+        if v := os.Getenv("OSST_AI_MODEL_URI"); v != "" {
+            model = v
+        }
+    }
+    if model == "" {
+        model = defaultModel
+    }
+
+    maxTokens := 2048
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_TOKENS")); v != "" {
+        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
+            maxTokens = 2048
+        }
+    } else if v := strings.TrimSpace(os.Getenv("OSTT_AI_MAX_TOKENS")); v != "" {
+        if n, err := fmt.Sscanf(v, "%d", &maxTokens); err != nil || n != 1 || maxTokens <= 0 {
+            maxTokens = 2048
+        }
+    }
+
+    body := chatCompletionRequest{
+        Model:       model,
+        Messages:    messages,
+        Temperature: 0.3,
+        MaxTokens:   maxTokens,
+        Stream:      false,
+    }
+    return json.Marshal(body)
+}
+
+func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (string, string, error) {
     apiKey := os.Getenv("OSST_AI_API_KEY")
     if apiKey == "" {
         apiKey = os.Getenv("OSTT_AI_API_KEY")
     }
     if apiKey == "" {
-        return "", errors.New("переменная окружения OSST_AI_API_KEY не установлена")
+        return "", "", errors.New("переменная окружения OSST_AI_API_KEY не установлена")
     }
     req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsEndpoint, bytes.NewReader(body))
     if err != nil {
-        return "", err
+        return "", "", err
     }
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
@@ -127,24 +176,65 @@ func sendChatCompletion(ctx context.Context, client *http.Client, body []byte) (
     }
     resp, err := client.Do(req)
     if err != nil {
-        return "", err
+        return "", "", err
     }
     defer resp.Body.Close()
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
         b, _ := io.ReadAll(resp.Body)
-        return "", fmt.Errorf("ошибка запроса: %s: %s", resp.Status, string(b))
+        return "", "", fmt.Errorf("ошибка запроса: %s: %s", resp.Status, string(b))
     }
     var out chatCompletionResponse
     if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-        return "", err
+        return "", "", err
     }
     if len(out.Choices) == 0 {
-        return "", errors.New("пустой ответ модели")
+        return "", "", errors.New("пустой ответ модели")
     }
-    return out.Choices[0].Message.Content, nil
+    return out.Choices[0].Message.Content, out.Choices[0].FinishReason, nil
 }
 
 // no polling required with Chat Completions
+
+// chatCompleteWithContinuation requests completion and, if finish_reason=="length",
+// continues generation for a few rounds by appending assistant reply and a short user prompt.
+func chatCompleteWithContinuation(ctx context.Context, client *http.Client, userMessages []openAIMessage, systemPrompt string) (string, error) {
+    // build initial messages
+    messages := make([]openAIMessage, 0, len(userMessages)+2)
+    if strings.TrimSpace(systemPrompt) != "" {
+        messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
+    }
+    messages = append(messages, userMessages...)
+
+    // continuation rounds limit from env (default 2)
+    maxRounds := 2
+    if v := strings.TrimSpace(os.Getenv("OSST_AI_MAX_CONTINUATIONS")); v != "" {
+        _, _ = fmt.Sscanf(v, "%d", &maxRounds)
+        if maxRounds < 0 { maxRounds = 0 }
+        if maxRounds > 5 { maxRounds = 5 }
+    }
+
+    var aggregated strings.Builder
+    for round := 0; round < maxRounds+1; round++ {
+        body, err := buildCompletionBodyFromMessages(messages)
+        if err != nil {
+            return "", err
+        }
+        content, finish, err := sendChatCompletion(ctx, client, body)
+        if err != nil {
+            return "", err
+        }
+        if content != "" {
+            aggregated.WriteString(content)
+            messages = append(messages, openAIMessage{Role: "assistant", Content: content})
+        }
+        if finish != "length" {
+            break
+        }
+        // ask to continue
+        messages = append(messages, openAIMessage{Role: "user", Content: "продолжай"})
+    }
+    return aggregated.String(), nil
+}
 
 func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
     // Admins: can use /ask anywhere, no limits
@@ -200,17 +290,8 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		})
 		return
 	}
-    body, err := buildCompletionBody(userMsgs, c.GetSystemPrompt())
-	if err != nil {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("Не удалось подготовить запрос: %v", err),
-			ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
-		})
-		return
-	}
-	client := &http.Client{Timeout: 60 * time.Second}
-    answer, err := sendChatCompletion(ctx, client, body)
+    client := &http.Client{Timeout: 60 * time.Second}
+    answer, err := chatCompleteWithContinuation(ctx, client, userMsgs, c.GetSystemPrompt())
 	if err != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
@@ -219,11 +300,29 @@ func (c *Commander) AskHandler(ctx context.Context, b *bot.Bot, update *models.U
 		})
 		return
 	}
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   answer,
-		ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
-	})
+    sendChunkedMessage(ctx, b, update.Message.Chat.ID, update.Message.ID, answer)
+}
+
+// sendChunkedMessage splits long text into safe chunks and sends sequentially.
+func sendChunkedMessage(ctx context.Context, b *bot.Bot, chatID int64, replyToMessageID int, text string) {
+    const maxLen = 4000
+    // simple rune-safe chunking
+    runes := []rune(text)
+    for i := 0; i < len(runes); i += maxLen {
+        end := i + maxLen
+        if end > len(runes) {
+            end = len(runes)
+        }
+        chunk := string(runes[i:end])
+        params := &bot.SendMessageParams{
+            ChatID: chatID,
+            Text:   chunk,
+        }
+        if i == 0 {
+            params.ReplyParameters = &models.ReplyParameters{MessageID: replyToMessageID}
+        }
+        b.SendMessage(ctx, params)
+    }
 }
 
 

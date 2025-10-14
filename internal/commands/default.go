@@ -81,16 +81,9 @@ func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *mode
                 key := fmt.Sprintf("%d:%d", chatID, update.Message.ID)
                 if !autoAskSent.LoadOrStore(key) {
                     userMsgs := []openAIMessage{{Role: "user", Content: text}}
-                    body, err := buildCompletionBody(userMsgs, c.GetSystemPrompt())
-                    if err == nil {
-                        client := &http.Client{Timeout: 60 * time.Second}
-                        if answer, err := sendChatCompletion(ctx, client, body); err == nil {
-                            b.SendMessage(ctx, &bot.SendMessageParams{
-                                ChatID: update.Message.Chat.ID,
-                                Text:   answer,
-                                ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
-                            })
-                        }
+                    client := &http.Client{Timeout: 60 * time.Second}
+                    if answer, err := chatCompleteWithContinuation(ctx, client, userMsgs, c.GetSystemPrompt()); err == nil {
+                        sendChunkedMessage(ctx, b, update.Message.Chat.ID, update.Message.ID, answer)
                     }
                 }
             }
