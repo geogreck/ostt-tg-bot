@@ -1,14 +1,36 @@
 package commands
 
 import (
-	"context"
-	"fmt"
-	models2 "telegram-sticker-bot/internal/models"
-	"time"
+    "context"
+    "fmt"
+    "math/rand"
+    "net/http"
+    "strings"
+    models2 "telegram-sticker-bot/internal/models"
+    "time"
 
-	"github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
+    "github.com/go-telegram/bot"
+    "github.com/go-telegram/bot/models"
 )
+
+var autoAskSent syncMap
+
+type syncMap struct{ m map[string]struct{} }
+
+func (s *syncMap) LoadOrStore(k string) bool {
+    if s.m == nil {
+        s.m = make(map[string]struct{})
+    }
+    if _, ok := s.m[k]; ok {
+        return true
+    }
+    s.m[k] = struct{}{}
+    return false
+}
+
+func init() {
+    rand.Seed(time.Now().UnixNano())
+}
 
 func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message != nil && (update.Message.Text == "а" || update.Message.Text == "А") {
@@ -41,6 +63,39 @@ func (c *Commander) DefaultHandler(ctx context.Context, b *bot.Bot, update *mode
 		}
 		c.mdb.Save(message)
 	}
+
+    // Auto-ask: 5% chance for qualifying messages (length>25 or ends with '?'), only in allowed chat, once per message
+    if update.Message != nil && update.Message.Text != "" {
+        const allowedChatShortID int64 = 2115621645
+        chatID := update.Message.Chat.ID
+        isAllowed := chatID == allowedChatShortID || (-chatID-1000000000000) == allowedChatShortID
+        if isAllowed {
+            text := strings.TrimSpace(update.Message.Text)
+            longEnough := len([]rune(text)) > 25
+            endsWithQ := strings.HasSuffix(text, "?")
+            if (longEnough || endsWithQ) && rand.Float64() < 0.05 {
+                // enforce daily auto-ask cap per chat (25)
+                if _, allowed, err := c.mdb.TryConsumeAutoAskQuota(chatID, 25); err != nil || !allowed {
+                    return
+                }
+                key := fmt.Sprintf("%d:%d", chatID, update.Message.ID)
+                if !autoAskSent.LoadOrStore(key) {
+                    userMsgs := []openAIMessage{{Role: "user", Content: text}}
+                    body, err := buildCompletionBody(userMsgs, c.GetSystemPrompt())
+                    if err == nil {
+                        client := &http.Client{Timeout: 60 * time.Second}
+                        if answer, err := sendChatCompletion(ctx, client, body); err == nil {
+                            b.SendMessage(ctx, &bot.SendMessageParams{
+                                ChatID: update.Message.Chat.ID,
+                                Text:   answer,
+                                ReplyParameters: &models.ReplyParameters{MessageID: update.Message.ID},
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
 
 	if update.MessageReaction != nil {
 		reaction := update.MessageReaction

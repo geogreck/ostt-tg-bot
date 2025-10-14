@@ -45,6 +45,8 @@ func main() {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/audit", bot.MatchTypePrefix, commander.AuditHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypePrefix, commander.AuditTopHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/ask", bot.MatchTypePrefix, commander.AskHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/change_prompt", bot.MatchTypePrefix, commander.ChangePromptHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/show_prompt", bot.MatchTypePrefix, commander.ShowPromptHandler)
 	// b.RegisterHandler(bot.Handle
 	b.Start(ctx)
 }
