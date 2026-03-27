@@ -18,7 +18,7 @@ import (
 
 func setByChatId(chatId int64) string {
 	if chatId == -1002115621645 || chatId == -1002307500811 {
-		return "ostt_by_halaji_bot"
+		return "ostt_2026_by_halaji_bot"
 	}
 	return ""
 }
